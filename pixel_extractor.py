@@ -183,8 +183,8 @@ def main_cli():
     print(f"已生成: {output}")
 
 
-def main_gui():
-    """GUI 入口：图形化界面选择文件并执行提取。"""
+def main_gui(parent=None):
+    """GUI 入口：图形化界面选择文件并执行提取。parent 不为 None 时在 Toplevel 中打开（供统一启动器调用）。"""
     try:
         import tkinter as tk
         from tkinter import filedialog, messagebox, ttk
@@ -268,15 +268,17 @@ def main_gui():
             status_var.set("提取失败")
             messagebox.showerror("错误", str(e))
 
-    root = tk.Tk()
+    from pixel_gui_util import make_scrollable
+
+    root = tk.Toplevel(parent) if parent else tk.Tk()
     root.title("Pixel Art 坐标与颜色提取工具")
     root.minsize(560, 380)
     root.geometry("600x420")
     root.resizable(True, True)
 
-    # 主容器
-    main = ttk.Frame(root, padding=16)
-    main.pack(fill=tk.BOTH, expand=True)
+    scroll_container, main = make_scrollable(root)
+    scroll_container.pack(fill=tk.BOTH, expand=True)
+    main.configure(padding=16)
 
     # 标题
     title = ttk.Label(main, text="像素画坐标与颜色提取工具", font=("", 14, "bold"))
@@ -341,12 +343,13 @@ def main_gui():
     btn_frame.pack(fill=tk.X, pady=12)
     ttk.Button(btn_frame, text="提取并保存", command=do_extract).pack(side=tk.LEFT, padx=(0, 8))
 
-    # 状态栏
+    # 状态栏（固定在窗口底部，不随内容滚动）
     status_var = tk.StringVar(value="请选择输入图像后点击「提取并保存」")
-    status_bar = ttk.Label(main, textvariable=status_var, relief=tk.SUNKEN, anchor=tk.W)
-    status_bar.pack(side=tk.BOTTOM, fill=tk.X, pady=(8, 0))
+    status_bar = ttk.Label(root, textvariable=status_var, relief=tk.SUNKEN, anchor=tk.W)
+    status_bar.pack(side=tk.BOTTOM, fill=tk.X, pady=(0, 0))
 
-    root.mainloop()
+    if parent is None:
+        root.mainloop()
 
 
 if __name__ == "__main__":

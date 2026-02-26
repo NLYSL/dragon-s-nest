@@ -18,6 +18,49 @@ def _normalize_code(code: str) -> str:
     return code.replace("None  # ", "None,  # ")
 
 
+def _extract_pixel_data_blocks(code: str) -> list[tuple[str, str]]:
+    """
+    从可能含 Markdown/杂项的文本中提取 PIXEL_DATA 或 PIXEL_DATA_* = { ... } 的代码块。
+    返回 [(变量名, 可执行的代码字符串), ...]。
+    用于 exec 失败时（如文件含未闭合括号、非 Python 前缀等）的降级解析。
+    """
+    code = code.strip().lstrip("\ufeff")
+    out = []
+    # 匹配 "PIXEL_DATA" 或 "PIXEL_DATA_XXX" 后跟 = {
+    pattern = re.compile(r"\b(PIXEL_DATA\w*)\s*=\s*\{", re.IGNORECASE)
+    for m in pattern.finditer(code):
+        var_name = m.group(1)
+        start = m.start()
+        brace_start = m.end() - 1  # 即 '{' 的位置
+        depth = 0
+        i = brace_start
+        while i < len(code):
+            # 跳过字符串内容，避免把字符串里的 {} 算进去
+            if code[i] in "\"'" and (i == 0 or code[i - 1] != "\\"):
+                q = code[i]
+                i += 1
+                while i < len(code):
+                    if code[i] == "\\":
+                        i += 2
+                        continue
+                    if code[i] == q:
+                        i += 1
+                        break
+                    i += 1
+                continue
+            if code[i] == "{":
+                depth += 1
+            elif code[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    snippet = code[start : i + 1]
+                    snippet = _normalize_code(snippet)
+                    out.append((var_name, snippet))
+                    break
+            i += 1
+    return out
+
+
 def load_pixel_dict_from_file(
     file_path: str,
     variable_name: str | None = None,
@@ -31,13 +74,28 @@ def load_pixel_dict_from_file(
     if not path.exists():
         raise FileNotFoundError(f"文件不存在: {path}")
 
-    with open(path, encoding="utf-8") as f:
+    with open(path, encoding="utf-8", errors="replace") as f:
         code = f.read()
 
+    code = code.strip().lstrip("\ufeff")
     code = _normalize_code(code)
     namespace = {}
+
     try:
         exec(code, namespace)
+    except SyntaxError as e:
+        # 若整文件执行失败（如含未闭合括号、Markdown 等），尝试只提取 PIXEL_DATA* = { ... } 再执行
+        blocks = _extract_pixel_data_blocks(code)
+        if not blocks:
+            raise ValueError(
+                f"数据文件语法错误（{e.msg}），且未找到可解析的 PIXEL_DATA 或 PIXEL_DATA_* = {{ ... }} 块。"
+                "请确保文件为合法 Python，或仅包含如 PIXEL_DATA_FRAME2 = {{ (x,y): color, ... }} 的代码块。"
+            ) from e
+        for var_name, snippet in blocks:
+            try:
+                exec(snippet, namespace)
+            except Exception as inner:
+                raise ValueError(f"提取的代码块 {var_name} 执行失败: {inner}") from inner
     except Exception as e:
         raise ValueError(f"无法执行数据文件: {e}") from e
 
@@ -196,7 +254,8 @@ def main_cli():
     print(f"已合并并保存: {args.output}")
 
 
-def main_gui():
+def main_gui(parent=None):
+    """parent 不为 None 时在 Toplevel 中打开（供统一启动器调用）。"""
     try:
         import tkinter as tk
         from tkinter import filedialog, messagebox, ttk
@@ -259,14 +318,17 @@ def main_gui():
             status_var.set("合并失败")
             messagebox.showerror("错误", str(e))
 
-    root = tk.Tk()
+    from pixel_gui_util import make_scrollable
+
+    root = tk.Toplevel(parent) if parent else tk.Tk()
     root.title("像素数据合并 - 补丁覆盖基础")
     root.minsize(520, 280)
     root.geometry("580x320")
     root.resizable(True, True)
 
-    main = ttk.Frame(root, padding=16)
-    main.pack(fill=tk.BOTH, expand=True)
+    scroll_container, main = make_scrollable(root)
+    scroll_container.pack(fill=tk.BOTH, expand=True)
+    main.configure(padding=16)
 
     ttk.Label(main, text="将补丁中的坐标覆盖到基础 PIXEL_DATA", font=("", 12, "bold")).pack(
         anchor=tk.W, pady=(0, 10)
@@ -303,11 +365,12 @@ def main_gui():
     ttk.Button(btn_frame, text="合并并保存", command=do_merge).pack(side=tk.LEFT)
 
     status_var = tk.StringVar(value="选择基础数据与补丁数据后点击「合并并保存」")
-    ttk.Label(main, textvariable=status_var, relief=tk.SUNKEN, anchor=tk.W).pack(
-        side=tk.BOTTOM, fill=tk.X, pady=(8, 0)
+    ttk.Label(root, textvariable=status_var, relief=tk.SUNKEN, anchor=tk.W).pack(
+        side=tk.BOTTOM, fill=tk.X, pady=(0, 0)
     )
 
-    root.mainloop()
+    if parent is None:
+        root.mainloop()
 
 
 if __name__ == "__main__":

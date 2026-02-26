@@ -157,8 +157,8 @@ def main_cli():
     print(f"已生成: {args.output}")
 
 
-def main_gui():
-    """图形界面入口。"""
+def main_gui(parent=None):
+    """图形界面入口。parent 不为 None 时在 Toplevel 中打开（供统一启动器调用）。"""
     try:
         import tkinter as tk
         from tkinter import filedialog, messagebox, ttk
@@ -207,14 +207,17 @@ def main_gui():
             status_var.set("生成失败")
             messagebox.showerror("错误", str(e))
 
-    root = tk.Tk()
+    from pixel_gui_util import make_scrollable
+
+    root = tk.Toplevel(parent) if parent else tk.Tk()
     root.title("像素画生成器 - 从数据文件生成图像")
     root.minsize(480, 260)
     root.geometry("520x280")
     root.resizable(True, True)
 
-    main = ttk.Frame(root, padding=16)
-    main.pack(fill=tk.BOTH, expand=True)
+    scroll_container, main = make_scrollable(root)
+    scroll_container.pack(fill=tk.BOTH, expand=True)
+    main.configure(padding=16)
 
     ttk.Label(main, text="从 PIXEL_DATA 生成像素画", font=("", 12, "bold")).pack(
         anchor=tk.W, pady=(0, 12)
@@ -248,11 +251,12 @@ def main_gui():
     ttk.Button(btn_frame, text="生成图像", command=do_generate).pack(side=tk.LEFT)
 
     status_var = tk.StringVar(value="请选择包含 PIXEL_DATA 的 .py 文件后点击「生成图像」")
-    ttk.Label(main, textvariable=status_var, relief=tk.SUNKEN, anchor=tk.W).pack(
-        side=tk.BOTTOM, fill=tk.X, pady=(8, 0)
+    ttk.Label(root, textvariable=status_var, relief=tk.SUNKEN, anchor=tk.W).pack(
+        side=tk.BOTTOM, fill=tk.X, pady=(0, 0)
     )
 
-    root.mainloop()
+    if parent is None:
+        root.mainloop()
 
 
 if __name__ == "__main__":
